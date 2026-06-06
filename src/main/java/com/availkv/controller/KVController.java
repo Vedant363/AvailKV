@@ -7,16 +7,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-/**
- * KVController — updated for Phase 2.
- *
- * Key change from Phase 1:
- * PUT and DELETE now check if this node is the LEADER before accepting writes.
- * Followers return 403 with a hint about who the current leader is.
- *
- * GETs are still allowed on any node — reads don't need quorum for now.
- * (Phase 3 will add the ?replicated=true guard for replication fan-out.)
- */
 @RestController
 @RequestMapping("/kv")
 public class KVController {
@@ -29,10 +19,6 @@ public class KVController {
         this.clusterManager = clusterManager;
     }
 
-    /**
-     * GET /kv/{key}
-     * Reads are allowed on any node.
-     */
     @GetMapping("/{key}")
     public ResponseEntity<String> get(@PathVariable String key) {
         return kvStore.get(key)
@@ -40,11 +26,6 @@ public class KVController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    /**
-     * PUT /kv/{key}
-     * Only the LEADER accepts writes.
-     * ?replicated=true bypasses the leader check (write came from leader replication).
-     */
     @PutMapping("/{key}")
     public ResponseEntity<String> put(
             @PathVariable String key,
@@ -59,10 +40,6 @@ public class KVController {
         return ResponseEntity.ok("OK");
     }
 
-    /**
-     * DELETE /kv/{key}
-     * Only the LEADER accepts deletes.
-     */
     @DeleteMapping("/{key}")
     public ResponseEntity<String> delete(
             @PathVariable String key,
@@ -78,10 +55,6 @@ public class KVController {
                 : ResponseEntity.notFound().build();
     }
 
-    /**
-     * Returns 403 with a hint telling the client which node is the current leader.
-     * This lets clients redirect themselves to the right node.
-     */
     private ResponseEntity<String> leaderOnlyResponse() {
         String leader = clusterManager.getLeaderId();
         String message = leader != null
