@@ -1,4 +1,7 @@
 package com.availkv.cluster;
 
-public class NodeState {
+public enum NodeState {
+    FOLLOWER,
+    CANDIDATE,
+    LEADER
 }
