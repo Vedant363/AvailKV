@@ -22,13 +22,8 @@ public class AskController {
             return ResponseEntity.badRequest().body("Question cannot be empty.");
         }
 
-        // Build the live cluster snapshot
         String context = clusterContext.build();
-
-        // The structure matters: system role → context → question
         String prompt = buildPrompt(context, question.trim());
-
-        // Send to Ollama and get the answer
         String answer = ollamaClient.ask(prompt);
 
         return ResponseEntity.ok(answer);
@@ -36,23 +31,25 @@ public class AskController {
 
     private String buildPrompt(String context, String question) {
         return """
-                SYSTEM:
-                You are an expert distributed systems engineer and operational assistant
-                for AvailKV, a distributed in-memory key-value store using Raft-style
-                leader election and write-ahead logging for durability.
+                You are a diagnostic assistant for AvailKV, a distributed key-value store.
                 
-                You have access to a live snapshot of the cluster's current state below.
-                Use it to give specific, accurate answers. If the context doesn't contain
-                enough information to answer confidently, say so clearly.
-                Keep answers concise and actionable.
+                STRICT RULES — you must follow all of these:
+                1. Answer ONLY using facts present in the CLUSTER STATE section below.
+                2. Do NOT give generic distributed systems advice.
+                3. Do NOT speculate about things not mentioned in the context.
+                4. Every claim you make must reference a specific field or event from the context.
+                5. If the context does not contain enough information to answer the question,
+                   respond with exactly: "The cluster context does not contain enough information to answer this. Observed facts: [list what you do see]"
+                6. Keep answers short — 3 to 6 sentences max.
+                7. Do not use bullet points. Answer in plain sentences.
+                8. Do not suggest troubleshooting steps unless a ⚠ FACT warning appears in the context.
                 
                 CLUSTER STATE:
                 """ + context + """
                 
-                QUESTION:
-                """ + question + """
+                QUESTION: """ + question + """
                 
-                ANSWER:
+                ANSWER (facts from context only, 3-6 sentences, no bullet points):
                 """;
     }
 }
