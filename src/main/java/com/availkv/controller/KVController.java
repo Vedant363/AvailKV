@@ -1,7 +1,7 @@
 package com.availkv.controller;
 
 import com.availkv.cluster.ClusterManager;
-import com.availkv.cluster.NodeState;
+import com.availkv.replication.ReplicationService;
 import com.availkv.storage.KVStore;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -12,10 +12,14 @@ import org.springframework.web.bind.annotation.*;
 public class KVController {
 
     private final KVStore kvStore;
+    private final ReplicationService replicationService;
     private final ClusterManager clusterManager;
 
-    public KVController(KVStore kvStore, ClusterManager clusterManager) {
+    public KVController(KVStore kvStore,
+                        ReplicationService replicationService,
+                        ClusterManager clusterManager) {
         this.kvStore = kvStore;
+        this.replicationService = replicationService;
         this.clusterManager = clusterManager;
     }
 
@@ -36,7 +40,7 @@ public class KVController {
             return leaderOnlyResponse();
         }
 
-        kvStore.put(key, value);
+        replicationService.put(key, value, replicated);
         return ResponseEntity.ok("OK");
     }
 
@@ -49,10 +53,13 @@ public class KVController {
             return leaderOnlyResponse();
         }
 
-        boolean deleted = kvStore.delete(key);
-        return deleted
-                ? ResponseEntity.ok("DELETED")
-                : ResponseEntity.notFound().build();
+        // Check existence before going through replication pipeline
+        if (kvStore.get(key).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        replicationService.delete(key, replicated);
+        return ResponseEntity.ok("DELETED");
     }
 
     private ResponseEntity<String> leaderOnlyResponse() {
