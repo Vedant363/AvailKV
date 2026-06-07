@@ -30,6 +30,7 @@ public class ClusterContext {
     public String build() {
         StringBuilder sb = new StringBuilder();
         long now = System.currentTimeMillis();
+        Map<String, String> urlToName = clusterManager.getPeerUrlToName();
 
         // Basic state
         sb.append("=== AvailKV Cluster Diagnostic Context ===\n");
@@ -54,21 +55,22 @@ public class ClusterContext {
                 .append(" (this node) : REACHABLE\n");
 
         Map<String, Long> lastSeen = clusterManager.getPeerLastSeen();
-        for (String peerUrl : clusterManager.getPeerUrls()) {
-            peerUrl = peerUrl.trim();
-            if (peerUrl.isEmpty()) continue;
+        for (Map.Entry<String, String> entry : urlToName.entrySet()) {
+            String url      = entry.getKey().trim();
+            String nodeName = entry.getValue();
 
-            Long lastContact = lastSeen.get(peerUrl);
+            Long lastContact = lastSeen.get(url);
             if (lastContact == null) {
-                sb.append("  ").append(peerUrl)
+                sb.append("  ").append(nodeName)
+                        .append(" (").append(url).append(")")
                         .append(" : UNKNOWN — never successfully contacted since this node started\n");
             } else {
                 long ago = now - lastContact;
                 boolean reachable = ago < UNREACHABLE_THRESHOLD_MS;
-                sb.append("  ").append(peerUrl)
-                        .append(" : ")
-                        .append(reachable ? "REACHABLE" : "UNREACHABLE")
-                        .append(" (last contact ").append(ago).append("ms ago)\n");
+                sb.append("  ").append(nodeName)
+                        .append(" (").append(url).append(")")
+                        .append(" : ").append(reachable ? "REACHABLE" : "UNREACHABLE")
+                        .append(" — last contact ").append(ago).append("ms ago\n");
             }
         }
         sb.append("\n");
@@ -82,10 +84,12 @@ public class ClusterContext {
             // Sort terms so latest is last
             new TreeMap<>(voteLog).forEach((term, votes) -> {
                 sb.append("  Term ").append(term).append(":\n");
-                votes.forEach((voter, candidate) ->
-                        sb.append("    ").append(voter)
-                                .append(" voted for ").append(candidate).append("\n")
-                );
+                votes.forEach((voter, candidate) -> {
+                    String voterName     = urlToName.getOrDefault(voter, voter);
+                    String candidateName = urlToName.getOrDefault(candidate, candidate);
+                    sb.append("    ").append(voterName)
+                            .append(" voted for ").append(candidateName).append("\n");
+                });
             });
         }
         sb.append("\n");
@@ -116,16 +120,21 @@ public class ClusterContext {
 
         // Unreachable node facts
         boolean anyUnreachable = false;
-        for (String peerUrl : clusterManager.getPeerUrls()) {
-            peerUrl = peerUrl.trim();
-            Long lastContact = lastSeen.get(peerUrl);
-            if (lastContact == null || (now - lastContact) >= UNREACHABLE_THRESHOLD_MS) {
-                sb.append("  - ").append(peerUrl)
-                        .append(" is currently UNREACHABLE. It has not responded to heartbeats")
-                        .append(lastContact == null ? " at all since startup" :
-                                " for " + (now - lastContact) + "ms")
+        for (Map.Entry<String, String> entry : urlToName.entrySet()) {
+            String url      = entry.getKey().trim();
+            String nodeName = entry.getValue();
+            Long lastContact = lastSeen.get(url);
+            long ago = lastContact == null ? Long.MAX_VALUE : now - lastContact;
+
+            if (lastContact == null || ago >= UNREACHABLE_THRESHOLD_MS) {
+                sb.append("  - ").append(nodeName)
+                        .append(" is currently UNREACHABLE. Last contact: ")
+                        .append(lastContact == null ? "never since startup" : ago + "ms ago")
                         .append(". This node is likely down or disconnected.\n");
                 anyUnreachable = true;
+            } else {
+                sb.append("  - ").append(nodeName)
+                        .append(" is REACHABLE (last contact ").append(ago).append("ms ago).\n");
             }
         }
         if (!anyUnreachable) {
