@@ -22,6 +22,9 @@ public class ClusterManager {
     @Value("${peer.urls}")
     private String peerUrlsRaw;
 
+    @Value("${peer.ids:}")
+    private String peerIdsRaw;
+
     private final AtomicInteger currentTerm = new AtomicInteger(0);
     private volatile NodeState state = NodeState.FOLLOWER;
     private volatile String leaderId = null;
@@ -63,6 +66,18 @@ public class ClusterManager {
 
     public void markPeerSeen(String peerUrl) {
         peerLastSeen.put(peerUrl.trim(), System.currentTimeMillis());
+    }
+
+    public Map<String, String> getPeerUrlToName() {
+        Map<String, String> map = new java.util.LinkedHashMap<>();
+        String[] urls = peerUrlsRaw.split(",");
+        String[] ids  = (peerIdsRaw == null || peerIdsRaw.isBlank()) ? new String[0] : peerIdsRaw.split(",");
+        for (int i = 0; i < urls.length; i++) {
+            String url  = urls[i].trim();
+            String name = (i < ids.length) ? ids[i].trim() : url;
+            map.put(url, name);
+        }
+        return map;
     }
 
     public void recordVote(int term, String voterId, String candidate) {
