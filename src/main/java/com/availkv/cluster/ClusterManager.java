@@ -6,17 +6,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Component
 public class ClusterManager {
 
     private static final Logger log = LoggerFactory.getLogger(ClusterManager.class);
-
-    // Max events to keep in memory — older ones are dropped
     private static final int MAX_EVENTS = 50;
 
     @Value("${node.id}")
@@ -33,20 +30,44 @@ public class ClusterManager {
 
     private final List<ClusterEvent> eventLog = Collections.synchronizedList(new ArrayList<>());
 
-    public String getNodeId()                    { return nodeId; }
-    public String[] getPeerUrls()                { return peerUrlsRaw.split(","); }
-    public int getCurrentTerm()                  { return currentTerm.get(); }
-    public NodeState getState()                  { return state; }
-    public String getLeaderId()                  { return leaderId; }
-    public boolean isLeader()                    { return state == NodeState.LEADER; }
-    public long getLastHeartbeatTimestamp()      { return lastHeartbeatTimestamp; }
+    private final Map<Integer, Map<String, String>> voteLog = new ConcurrentHashMap<>();
+
+    private final Map<String, Long> peerLastSeen = new ConcurrentHashMap<>();
+
+    public String getNodeId()               { return nodeId; }
+    public String[] getPeerUrls()           { return peerUrlsRaw.split(","); }
+    public int getCurrentTerm()             { return currentTerm.get(); }
+    public NodeState getState()             { return state; }
+    public String getLeaderId()             { return leaderId; }
+    public boolean isLeader()               { return state == NodeState.LEADER; }
+    public long getLastHeartbeatTimestamp() { return lastHeartbeatTimestamp; }
 
     public List<ClusterEvent> getRecentEvents(int n) {
         synchronized (eventLog) {
             int size = eventLog.size();
-            int from = Math.max(0, size - n);
-            return new ArrayList<>(eventLog.subList(from, size));
+            return new ArrayList<>(eventLog.subList(Math.max(0, size - n), size));
         }
+    }
+
+    public Map<String, String> getVotesForTerm(int term) {
+        return voteLog.getOrDefault(term, Collections.emptyMap());
+    }
+
+    public Map<Integer, Map<String, String>> getVoteLog() {
+        return Collections.unmodifiableMap(voteLog);
+    }
+
+    public Map<String, Long> getPeerLastSeen() {
+        return Collections.unmodifiableMap(peerLastSeen);
+    }
+
+    public void markPeerSeen(String peerUrl) {
+        peerLastSeen.put(peerUrl.trim(), System.currentTimeMillis());
+    }
+
+    public void recordVote(int term, String voterId, String candidate) {
+        voteLog.computeIfAbsent(term, k -> new ConcurrentHashMap<>())
+                .put(voterId, candidate);
     }
 
     public synchronized void becomeLeader() {
@@ -61,7 +82,8 @@ public class ClusterManager {
         if (term > currentTerm.get()) {
             log.info("[{}] Stepping down — saw higher term {} from {}", nodeId, term, newLeaderId);
             recordEvent("STEP_DOWN",
-                    nodeId + " stepped down from " + state + " — saw higher term " + term
+                    nodeId + " stepped down from " + state
+                            + " — saw higher term " + term
                             + " from " + (newLeaderId != null ? newLeaderId : "unknown"));
             currentTerm.set(term);
             votedFor = null;
@@ -69,6 +91,12 @@ public class ClusterManager {
         state = NodeState.FOLLOWER;
         leaderId = newLeaderId;
         lastHeartbeatTimestamp = System.currentTimeMillis();
+        if (newLeaderId != null) {
+            // The node we heard from is clearly alive
+            for (String url : getPeerUrls()) {
+                if (url.contains(newLeaderId)) markPeerSeen(url);
+            }
+        }
     }
 
     public synchronized int startElection() {
@@ -76,6 +104,8 @@ public class ClusterManager {
         int newTerm = currentTerm.incrementAndGet();
         votedFor = nodeId;
         leaderId = null;
+        // Record self-vote
+        recordVote(newTerm, nodeId, nodeId);
         log.info("[{}] Starting election for term {}", nodeId, newTerm);
         recordEvent("ELECTION_STARTED",
                 nodeId + " started election for term " + newTerm
@@ -90,7 +120,8 @@ public class ClusterManager {
         if (candidateTerm < currentTerm.get()) {
             recordEvent("VOTE_REJECTED",
                     nodeId + " rejected vote for " + candidateId
-                            + " — stale term " + candidateTerm + " (our term: " + currentTerm.get() + ")");
+                            + " — stale term " + candidateTerm
+                            + " (our term: " + currentTerm.get() + ")");
             return new VoteResponse(false, currentTerm.get());
         }
 
@@ -104,6 +135,8 @@ public class ClusterManager {
         if (canVote) {
             votedFor = candidateId;
             lastHeartbeatTimestamp = System.currentTimeMillis();
+            // Record this node's vote
+            recordVote(candidateTerm, nodeId, candidateId);
             recordEvent("VOTE_GRANTED",
                     nodeId + " granted vote to " + candidateId + " for term " + candidateTerm);
             return new VoteResponse(true, currentTerm.get());
@@ -123,6 +156,10 @@ public class ClusterManager {
                             + " < our term " + currentTerm.get() + ") — ignored");
             return false;
         }
+        // Mark leader as seen
+        for (String url : getPeerUrls()) {
+            if (url.contains(request.getLeaderId())) markPeerSeen(url);
+        }
         becomeFollower(request.getTerm(), request.getLeaderId());
         return true;
     }
@@ -131,10 +168,7 @@ public class ClusterManager {
         ClusterEvent event = new ClusterEvent(type, description, Instant.now());
         synchronized (eventLog) {
             eventLog.add(event);
-            // Keep the list bounded — drop oldest when full
-            if (eventLog.size() > MAX_EVENTS) {
-                eventLog.remove(0);
-            }
+            if (eventLog.size() > MAX_EVENTS) eventLog.remove(0);
         }
     }
 }
