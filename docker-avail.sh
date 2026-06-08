@@ -449,8 +449,8 @@ cmd_ai() {
 cmd_logs() {
   local target="$1"
   if [[ "$target" =~ ^[0-9]+$ ]] && [ "$target" -ge 1 ] && [ "$target" -le "$NODE_COUNT" ]; then
-    echo -e "${CYAN}Tailing logs for node$target (Ctrl+C to stop):${RESET}"
-    docker compose -f "$COMPOSE_FILE" logs -f "node$target"
+    echo -e "${CYAN}Logs for node$target:${RESET}"
+    docker compose -f "$COMPOSE_FILE" logs --tail=50 "node$target"
   else
     echo -e "${RED}Usage: LOGS <node_number>${RESET}"
   fi

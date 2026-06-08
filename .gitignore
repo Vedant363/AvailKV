@@ -39,6 +39,8 @@ logs/
 # Runtime data
 writeAheadLog.txt
 availkv.iml
+docker-compose.generated.yml
+.docker-session
 
 # OS files
 .DS_Store
