@@ -526,10 +526,11 @@ while true; do
     LOGS)         cmd_logs "$arg" ;;
     HELP)         cmd_help ;;
     EXIT|QUIT)
-      echo "Exiting CLI. Containers are still running."
-      echo -e "To stop everything: ${CYAN}docker compose -f $COMPOSE_FILE down${RESET}"
-      exit 0
-      ;;
+          echo -e "${RED}Stopping all containers...${RESET}"
+          docker compose -f "$COMPOSE_FILE" down
+          echo "Goodbye."
+          exit 0
+          ;;
     *)
       echo -e "${RED}Unknown command: $cmd${RESET} — type HELP"
       ;;
