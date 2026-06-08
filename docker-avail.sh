@@ -544,7 +544,7 @@ while true; do
               2)
                 echo -e "${RED}Stopping containers and wiping all data...${RESET}"
                 docker compose -f "$COMPOSE_FILE" down
-                docker volume rm $(docker volume ls -q | grep availkv) 2>/dev/null
+                docker volume rm $(docker volume ls -q | grep availkv | grep -v ollama) 2>/dev/null
                 rm -f .docker-session
                 rm -f "$COMPOSE_FILE"
                 rm -f logs/node*_wal.txt
