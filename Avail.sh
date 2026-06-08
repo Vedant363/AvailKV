@@ -37,8 +37,9 @@ detect_previous_session() {
   if [ -f "$SESSION_FILE" ]; then
     local saved_count
     saved_count=$(cat "$SESSION_FILE")
-    # Verify at least one WAL file exists for that session
-    if ls "$LOG_DIR/node1_wal.txt" &>/dev/null || ls "$LOG_DIR/node"*"_wal.txt" &>/dev/null 2>/dev/null; then
+    local wal_files
+    wal_files=$(ls "$LOG_DIR"/node*_wal.txt 2>/dev/null)
+    if [ -n "$wal_files" ]; then
       echo "$saved_count"
       return
     fi
