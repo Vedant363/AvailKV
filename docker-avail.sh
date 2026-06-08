@@ -198,7 +198,7 @@ start_cluster() {
   fi
 
   # Remind about Ollama model on first run
-  if ! docker exec availkv-ollama ollama list 2>/dev/null | grep -q "llama"; then
+  if ! docker exec availkv-ollama ollama list 2>/dev/null | grep -q "gemma2"; then
     echo ""
     echo -e "${YELLOW}Ollama model not found. Pull it with:${RESET}"
     echo -e "  ${CYAN}docker exec -it availkv-ollama ollama pull gemma2:2b${RESET}"
