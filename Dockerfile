@@ -1,7 +1,7 @@
 # ── Stage 1: Build ───────────────────────────────────────────────────
 # Use a full Maven + JDK image just for building the JAR.
 # This stage is thrown away after — it never ends up in the final image.
-FROM maven:3.9.6-eclipse-temurin-17 AS builder
+FROM maven:3.9.6-eclipse-temurin-21 AS builder
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ RUN mvn clean package -q -DskipTests
 # ── Stage 2: Run ─────────────────────────────────────────────────────
 # Slim JRE-only image — no Maven, no JDK, no build tools.
 # Result is ~200MB instead of ~600MB.
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:21-jre-alpine
 
 WORKDIR /app
 

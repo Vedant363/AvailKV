@@ -57,7 +57,7 @@ EOF
       PEER_IDS: "$peer_ids"
       WAL_PATH: "/app/logs/wal.txt"
       OLLAMA_URL: "http://ollama:11434"
-      OLLAMA_MODEL: "llama3"
+      OLLAMA_MODEL: "gemma2:2b"
     ports:
       - "$port:$port"
     volumes:
@@ -201,7 +201,7 @@ start_cluster() {
   if ! docker exec availkv-ollama ollama list 2>/dev/null | grep -q "llama"; then
     echo ""
     echo -e "${YELLOW}Ollama model not found. Pull it with:${RESET}"
-    echo -e "  ${CYAN}docker exec -it availkv-ollama ollama pull llama3${RESET}"
+    echo -e "  ${CYAN}docker exec -it availkv-ollama ollama pull gemma2:2b${RESET}"
   fi
 }
 
