@@ -1,0 +1,17 @@
+# Exclude everything that doesn't need to go into the Docker build context.
+# Smaller context = faster builds.
+
+target/
+logs/
+.pids/
+*.log
+*.txt
+.idea/
+.vscode/
+*.iml
+.git/
+.gitignore
+avail.sh
+ListAll.sh
+SystemStatus.sh
+README.md
