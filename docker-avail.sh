@@ -526,10 +526,36 @@ while true; do
     LOGS)         cmd_logs "$arg" ;;
     HELP)         cmd_help ;;
     EXIT|QUIT)
-          echo -e "${RED}Stopping all containers...${RESET}"
-          docker compose -f "$COMPOSE_FILE" down
-          echo "Goodbye."
-          exit 0
+          echo ""
+          echo -e "${BOLD}How do you want to exit?${RESET}"
+          echo -e "  ${BOLD}1)${RESET} Persist — stop containers, keep all data (resume next time)"
+          echo -e "  ${BOLD}2)${RESET} Reset   — stop containers, wipe all data (fresh start next time)"
+          echo ""
+          while true; do
+            read -rp "Choose (1 or 2): " exit_choice
+            case "$exit_choice" in
+              1)
+                echo -e "${YELLOW}Stopping containers...${RESET}"
+                docker compose -f "$COMPOSE_FILE" down
+                echo -e "${GREEN}Data persisted. Run the script again to resume.${RESET}"
+                echo "Goodbye."
+                exit 0
+                ;;
+              2)
+                echo -e "${RED}Stopping containers and wiping all data...${RESET}"
+                docker compose -f "$COMPOSE_FILE" down
+                docker volume rm $(docker volume ls -q | grep availkv) 2>/dev/null
+                rm -f .docker-session
+                rm -f "$COMPOSE_FILE"
+                rm -f logs/node*_wal.txt
+                rm -f logs/.session
+                echo -e "${GREEN}Everything wiped. Next run starts fresh.${RESET}"
+                echo "Goodbye."
+                exit 0
+                ;;
+              *) echo -e "${RED}Please enter 1 or 2.${RESET}" ;;
+            esac
+          done
           ;;
     *)
       echo -e "${RED}Unknown command: $cmd${RESET} — type HELP"
