@@ -38,6 +38,7 @@ logs/
 
 # Runtime data
 writeAheadLog.txt
+availkv.iml
 
 # OS files
 .DS_Store
