@@ -1,11 +1,14 @@
 #!/bin/bash
 
+# AvailKV Cluster Manager
+# Usage: bash avail.sh
 
 # ── Config ───────────────────────────────────────────────────────────
-BASE_PORT=8080          # nodes get ports BASE_PORT+1, BASE_PORT+2, ...
-JAR_PATH="target/availkv-0.0.1-SNAPSHOT.jar"   # adjust if needed
+BASE_PORT=8080
+JAR_PATH="target/availkv-0.0.1-SNAPSHOT.jar"
 LOG_DIR="logs"
 PID_DIR=".pids"
+SESSION_FILE="$LOG_DIR/.session"   # stores NODE_COUNT between runs
 
 # ── Colors ───────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -18,26 +21,85 @@ RESET='\033[0m'
 mkdir -p "$LOG_DIR" "$PID_DIR"
 
 # ════════════════════════════════════════════════════════════════════
-# SETUP — ask for node count, build peer URLs, start all nodes
+# SETUP
 # ════════════════════════════════════════════════════════════════════
 
-choose_node_count() {
+print_banner() {
   echo ""
   echo -e "${BOLD}╔══════════════════════════════════╗${RESET}"
   echo -e "${BOLD}║     AvailKV Cluster Manager      ║${RESET}"
   echo -e "${BOLD}╚══════════════════════════════════╝${RESET}"
   echo ""
+}
+
+# Check if a previous session exists (logs folder has WAL files)
+detect_previous_session() {
+  if [ -f "$SESSION_FILE" ]; then
+    local saved_count
+    saved_count=$(cat "$SESSION_FILE")
+    # Verify at least one WAL file exists for that session
+    if ls "$LOG_DIR/node1_wal.txt" &>/dev/null || ls "$LOG_DIR/node"*"_wal.txt" &>/dev/null 2>/dev/null; then
+      echo "$saved_count"
+      return
+    fi
+  fi
+  echo ""
+}
+
+choose_startup_mode() {
+  print_banner
+
+  local prev
+  prev=$(detect_previous_session)
+
+  if [ -n "$prev" ]; then
+    # Count WAL files to determine previous node count
+    local wal_count
+    wal_count=$(ls "$LOG_DIR"/node*_wal.txt 2>/dev/null | wc -l | tr -d ' ')
+    local prev_node_count="$prev"
+
+    echo -e "${CYAN}Previous session detected — $prev_node_count nodes, $wal_count WAL file(s) found.${RESET}"
+    echo ""
+    echo -e "  ${BOLD}1)${RESET} Continue with same setup (${prev_node_count} nodes, restore existing data)"
+    echo -e "  ${BOLD}2)${RESET} Start fresh — choose new node count"
+    echo ""
+    while true; do
+      read -rp "Choose (1 or 2): " choice
+      case "$choice" in
+        1)
+          NODE_COUNT="$prev_node_count"
+          echo -e "${GREEN}Resuming with $NODE_COUNT nodes. WAL data will be replayed on startup.${RESET}"
+          return
+          ;;
+        2)
+          ask_node_count
+          return
+          ;;
+        *)
+          echo -e "${RED}Please enter 1 or 2.${RESET}"
+          ;;
+      esac
+    done
+  else
+    ask_node_count
+  fi
+}
+
+ask_node_count() {
   echo -e "How many nodes? ${CYAN}(3 / 5 / 7 / 9 / 11)${RESET}"
   while true; do
     read -rp "> " NODE_COUNT
     case "$NODE_COUNT" in
-      3|5|7|9|11) break ;;
+      3|5|7|9|11)
+        # Save session for next run
+        echo "$NODE_COUNT" > "$SESSION_FILE"
+        break
+        ;;
       *) echo -e "${RED}Please enter an odd number between 3 and 11.${RESET}" ;;
     esac
   done
 }
 
-# Build arrays of ports, node IDs, and peer URL strings for each node
 build_config() {
   PORTS=()
   NODE_IDS=()
@@ -47,7 +109,6 @@ build_config() {
   done
 }
 
-# For a given node index, return comma-separated URLs of all OTHER nodes
 peer_urls_for() {
   local my_index=$1
   local peers=()
@@ -59,7 +120,6 @@ peer_urls_for() {
   echo "$(IFS=,; echo "${peers[*]}")"
 }
 
-# For a given node index, return comma-separated IDs of all OTHER nodes
 peer_ids_for() {
   local my_index=$1
   local peers=()
@@ -72,7 +132,7 @@ peer_ids_for() {
 }
 
 start_node() {
-  local index=$1   # 1-based
+  local index=$1
   local port="${PORTS[$((index-1))]}"
   local node_id="node$index"
   local peer_urls
@@ -110,7 +170,6 @@ start_all_nodes() {
     start_node "$i"
   done
 
-  # Wait for all nodes to be ready
   echo ""
   echo -n "Waiting for nodes to be ready"
   local ready=0
@@ -150,7 +209,6 @@ is_alive() {
   [ "$code" == "200" ]
 }
 
-# Returns the URL of the current leader, or empty string if no leader found
 find_leader_url() {
   for i in $(seq 1 "$NODE_COUNT"); do
     local url
@@ -161,7 +219,6 @@ find_leader_url() {
       local leader_id
       leader_id=$(echo "$status" | sed 's/.*leader=//;s/ .*//')
       if [ -n "$leader_id" ] && [ "$leader_id" != "null" ] && [ "$leader_id" != "NONE" ]; then
-        # Find which node index matches this leader_id
         for j in $(seq 1 "$NODE_COUNT"); do
           if [ "node$j" == "$leader_id" ]; then
             local lurl
@@ -183,7 +240,6 @@ find_leader_url() {
 # ════════════════════════════════════════════════════════════════════
 
 cmd_put() {
-  # PUT name=vedant  →  key=name value=vedant
   local pair="$1"
   local key="${pair%%=*}"
   local value="${pair#*=}"
@@ -204,7 +260,6 @@ cmd_put() {
 cmd_get() {
   local key="$1"
   if [ -z "$key" ]; then echo -e "${RED}Usage: GET key${RESET}"; return; fi
-  # Reads can go to any alive node
   for i in $(seq 1 "$NODE_COUNT"); do
     local url
     url=$(node_url "$i")
@@ -237,9 +292,7 @@ cmd_delete() {
 
 cmd_systemstatus() {
   echo ""
-  local width=32
-  local line
-  line=$(printf '%*s' "$width" | tr ' ' '-')
+  local line="--------------------------------"
   echo "$line"
   printf "| %-28s |\n" "Total Nodes : $NODE_COUNT"
   echo "$line"
@@ -248,7 +301,6 @@ cmd_systemstatus() {
     url=$(node_url "$i")
     local label="Node $i"
     if is_alive "$url"; then
-      # Also fetch role
       local status
       status=$(curl -s --max-time 2 "$url/status" 2>/dev/null)
       local role
@@ -265,8 +317,6 @@ cmd_systemstatus() {
 cmd_listall() {
   local leader_url
   leader_url=$(find_leader_url)
-
-  # Try leader first
   if [ -n "$leader_url" ]; then
     local wal
     wal=$(curl -s --max-time 3 "$leader_url/wal")
@@ -277,8 +327,6 @@ cmd_listall() {
       return
     fi
   fi
-
-  # Fallback to any alive node
   for i in $(seq 1 "$NODE_COUNT"); do
     local url
     url=$(node_url "$i")
@@ -293,7 +341,6 @@ cmd_listall() {
       fi
     fi
   done
-
   echo -e "${RED}ERROR: No alive nodes found. Cannot fetch WAL.${RESET}"
 }
 
@@ -314,18 +361,12 @@ cmd_leader() {
 
 cmd_kill() {
   local target="$1"
-
-  # KILL ALL
   if [ "${target^^}" == "ALL" ]; then
     echo -e "${RED}Killing all nodes...${RESET}"
-    for i in $(seq 1 "$NODE_COUNT"); do
-      _kill_node "$i"
-    done
+    for i in $(seq 1 "$NODE_COUNT"); do _kill_node "$i"; done
     echo "Done."
     return
   fi
-
-  # KILL LEADER
   if [ "${target^^}" == "LEADER" ]; then
     local leader_url
     leader_url=$(find_leader_url)
@@ -336,18 +377,15 @@ cmd_kill() {
     status=$(curl -s --max-time 2 "$leader_url/status")
     local leader_id
     leader_id=$(echo "$status" | sed 's/.*leader=//;s/ .*//')
-    local index
-    index="${leader_id#node}"
+    local index="${leader_id#node}"
     echo -e "${RED}Killing leader: $leader_id${RESET}"
     _kill_node "$index"
     return
   fi
-
-  # KILL <number>
   if [[ "$target" =~ ^[0-9]+$ ]] && [ "$target" -ge 1 ] && [ "$target" -le "$NODE_COUNT" ]; then
     _kill_node "$target"
   else
-    echo -e "${RED}Usage: KILL <node_number> | KILL LEADER | KILL ALL${RESET}"
+    echo -e "${RED}Usage: KILL <n> | KILL LEADER | KILL ALL${RESET}"
   fi
 }
 
@@ -381,40 +419,90 @@ cmd_restart() {
   fi
 }
 
+cmd_ai() {
+  # AI <question>              → ask leader
+  # AI <n> <question>          → ask node n
+  local arg="$1"
+  local target_url=""
+  local question=""
+
+  # Check if first token is a number → node-specific request
+  local first_token
+  first_token=$(echo "$arg" | awk '{print $1}')
+
+  if [[ "$first_token" =~ ^[0-9]+$ ]]; then
+    local node_index="$first_token"
+    if [ "$node_index" -lt 1 ] || [ "$node_index" -gt "$NODE_COUNT" ]; then
+      echo -e "${RED}Node $node_index does not exist. Valid range: 1–$NODE_COUNT${RESET}"
+      return
+    fi
+    target_url=$(node_url "$node_index")
+    if ! is_alive "$target_url"; then
+      echo -e "${RED}node$node_index is not alive.${RESET}"
+      return
+    fi
+    question=$(echo "$arg" | cut -d' ' -f2-)
+    echo -e "${CYAN}Asking node$node_index:${RESET} $question"
+  else
+    # No node number — default to leader
+    target_url=$(find_leader_url)
+    if [ -z "$target_url" ]; then
+      echo -e "${RED}No leader available. Use AI <n> <question> to ask a specific node.${RESET}"
+      return
+    fi
+    question="$arg"
+    echo -e "${CYAN}Asking leader ($target_url):${RESET} $question"
+  fi
+
+  if [ -z "$question" ]; then
+    echo -e "${RED}Usage: AI <question>  or  AI <node_number> <question>${RESET}"
+    return
+  fi
+
+  echo ""
+  # Stream the response — no -s so we see it as it arrives
+  curl -s -X POST "$target_url/ask" \
+    -H "Content-Type: text/plain" \
+    -d "$question" \
+    --max-time 60
+  echo ""
+}
+
 cmd_help() {
   echo ""
   echo -e "${BOLD}Available commands:${RESET}"
   echo ""
-  echo -e "  ${CYAN}PUT key=value${RESET}      Write a key to the leader"
-  echo -e "  ${CYAN}GET key${RESET}            Read a key from any alive node"
-  echo -e "  ${CYAN}DELETE key${RESET}         Delete a key via the leader"
-  echo -e "  ${CYAN}SYSTEMSTATUS${RESET}       Show which nodes are up/down with roles"
-  echo -e "  ${CYAN}LISTALL${RESET}            Print full WAL (leader first, fallback to follower)"
-  echo -e "  ${CYAN}LEADER${RESET}             Show who the current leader is"
-  echo -e "  ${CYAN}KILL <n>${RESET}           Kill node n  (e.g. KILL 2)"
-  echo -e "  ${CYAN}KILL LEADER${RESET}        Kill whichever node is currently leader"
-  echo -e "  ${CYAN}KILL ALL${RESET}           Kill all nodes"
-  echo -e "  ${CYAN}RESTART <n>${RESET}        Restart node n  (e.g. RESTART 2)"
-  echo -e "  ${CYAN}HELP${RESET}               Show this list"
-  echo -e "  ${CYAN}EXIT${RESET}               Kill all nodes and exit"
+  echo -e "  ${CYAN}PUT key=value${RESET}               Write a key to the leader"
+  echo -e "  ${CYAN}GET key${RESET}                     Read a key from any alive node"
+  echo -e "  ${CYAN}DELETE key${RESET}                  Delete a key via the leader"
+  echo -e "  ${CYAN}SYSTEMSTATUS${RESET}                Show which nodes are up/down with roles"
+  echo -e "  ${CYAN}LISTALL${RESET}                     Print full WAL (leader first, fallback to follower)"
+  echo -e "  ${CYAN}LEADER${RESET}                      Show who the current leader is"
+  echo -e "  ${CYAN}KILL <n>${RESET}                    Kill node n  (e.g. KILL 2)"
+  echo -e "  ${CYAN}KILL LEADER${RESET}                 Kill whichever node is currently leader"
+  echo -e "  ${CYAN}KILL ALL${RESET}                    Kill all nodes"
+  echo -e "  ${CYAN}RESTART <n>${RESET}                 Restart node n  (e.g. RESTART 2)"
+  echo -e "  ${CYAN}AI <question>${RESET}               Ask the leader an AI diagnostic question"
+  echo -e "  ${CYAN}AI <n> <question>${RESET}           Ask node n specifically"
+  echo -e "  ${CYAN}HELP${RESET}                        Show this list"
+  echo -e "  ${CYAN}EXIT${RESET}                        Kill all nodes and exit"
   echo ""
 }
 
 # ════════════════════════════════════════════════════════════════════
-# MAIN REPL LOOP
+# MAIN
 # ════════════════════════════════════════════════════════════════════
 
-# Make sure JAR exists before starting
 if [ ! -f "$JAR_PATH" ]; then
   echo -e "${YELLOW}JAR not found at $JAR_PATH — building...${RESET}"
   mvn clean package -q -DskipTests
   if [ $? -ne 0 ]; then
-    echo -e "${RED}Build failed. Fix compilation errors and try again.${RESET}"
+    echo -e "${RED}Build failed. Fix errors and try again.${RESET}"
     exit 1
   fi
 fi
 
-choose_node_count
+choose_startup_mode
 build_config
 start_all_nodes
 
@@ -424,13 +512,13 @@ echo ""
 
 while true; do
   read -rp "availkv> " input
-  # Normalize: trim whitespace, uppercase the command word
   input=$(echo "$input" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
   [ -z "$input" ] && continue
 
   cmd=$(echo "$input" | awk '{print toupper($1)}')
   arg=$(echo "$input" | cut -d' ' -f2-)
-  [ "$arg" == "$cmd" ] && arg=""  # no argument given
+  [ "$arg" == "$(echo "$cmd" | tr '[:upper:]' '[:lower:]')" ] && arg=""
+  [ "$arg" == "$input" ] && arg=""
 
   case "$cmd" in
     PUT)          cmd_put "$arg" ;;
@@ -439,8 +527,9 @@ while true; do
     SYSTEMSTATUS) cmd_systemstatus ;;
     LISTALL)      cmd_listall ;;
     LEADER)       cmd_leader ;;
-    KILL)         cmd_kill "$(echo "$arg" | tr '[:lower:]' '[:upper:]')" ;;
+    KILL)         cmd_kill "$(echo "$arg" | awk '{print toupper($1)}')" ;;
     RESTART)      cmd_restart "$arg" ;;
+    AI)           cmd_ai "$arg" ;;
     HELP)         cmd_help ;;
     EXIT|QUIT)
       echo -e "${RED}Shutting down all nodes...${RESET}"
