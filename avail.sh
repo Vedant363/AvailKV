@@ -1,7 +1,6 @@
 #!/bin/bash
 
 # AvailKV Cluster Manager
-# Usage: bash avail.sh
 
 # ── Config ───────────────────────────────────────────────────────────
 BASE_PORT=8080
