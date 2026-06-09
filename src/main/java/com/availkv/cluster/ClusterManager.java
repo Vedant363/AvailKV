@@ -1,5 +1,6 @@
 package com.availkv.cluster;
 
+import com.availkv.storage.WALManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,6 +31,10 @@ public class ClusterManager {
     private volatile String leaderId = null;
     private volatile String votedFor = null;
     private volatile long lastHeartbeatTimestamp = System.currentTimeMillis();
+    private final WALManager walManager;
+    public ClusterManager(WALManager walManager) {
+        this.walManager = walManager;
+    }
 
     private final List<ClusterEvent> eventLog = Collections.synchronizedList(new ArrayList<>());
 
@@ -131,7 +136,9 @@ public class ClusterManager {
     public synchronized VoteResponse grantVote(VoteRequest request) {
         int candidateTerm = request.getTerm();
         String candidateId = request.getCandidateId();
+        int candidateLogSize = request.getLogSize();
 
+        // Reject if candidate's term is stale
         if (candidateTerm < currentTerm.get()) {
             recordEvent("VOTE_REJECTED",
                     nodeId + " rejected vote for " + candidateId
@@ -140,20 +147,37 @@ public class ClusterManager {
             return new VoteResponse(false, currentTerm.get());
         }
 
+        // Candidate has higher term — update ours and reset vote
         if (candidateTerm > currentTerm.get()) {
             currentTerm.set(candidateTerm);
             votedFor = null;
             state = NodeState.FOLLOWER;
         }
 
+        // ── Log freshness check (Raft election restriction) ──────────────
+        // Reject if our log is more complete than the candidate's.
+        // This prevents a stale node from becoming leader and serving
+        // deleted or overwritten data as the new source of truth.
+        int myLogSize = walManager.readAll().size();
+        if (candidateLogSize < myLogSize) {
+            recordEvent("VOTE_REJECTED",
+                    nodeId + " rejected vote for " + candidateId
+                            + " — candidate log size " + candidateLogSize
+                            + " < our log size " + myLogSize);
+            return new VoteResponse(false, currentTerm.get());
+        }
+
+        // Grant vote if we haven't voted yet this term
         boolean canVote = (votedFor == null || votedFor.equals(candidateId));
         if (canVote) {
             votedFor = candidateId;
             lastHeartbeatTimestamp = System.currentTimeMillis();
-            // Record this node's vote
             recordVote(candidateTerm, nodeId, candidateId);
             recordEvent("VOTE_GRANTED",
-                    nodeId + " granted vote to " + candidateId + " for term " + candidateTerm);
+                    nodeId + " voted for " + candidateId
+                            + " in term " + candidateTerm
+                            + " (candidate log: " + candidateLogSize
+                            + ", our log: " + myLogSize + ")");
             return new VoteResponse(true, currentTerm.get());
         }
 
