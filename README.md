@@ -19,9 +19,9 @@
 
 ## What is AvailKV?
 
-AvailKV is a distributed in-memory key-value store built for learning and demonstrating core distributed systems concepts. It implements a Raft-inspired consensus protocol from scratch — no libraries, no shortcuts — on top of Spring Boot, with a full CLI for cluster management, WAL-based crash recovery, and an AI diagnostic layer powered by a local LLM.
+AvailKV is a distributed in-memory key-value store built for learning and demonstrating core distributed systems concepts. It implements a Raft-inspired consensus protocol from scratch, on top of Spring Boot, with a full CLI for cluster management, WAL-based crash recovery, and an AI diagnostic layer powered by a local LLM.
 
-It prioritizes **Availability** and **Partition Tolerance** (AP) from the CAP theorem — the cluster keeps serving reads from any alive node even during leader failure, accepting eventual consistency as the tradeoff.
+It prioritizes **Availability** and **Partition Tolerance** (AP) from the CAP theorem, the cluster keeps serving reads from any alive node even during leader failure, accepting eventual consistency as the tradeoff.
 
 
 
