@@ -15,6 +15,11 @@ public class ReplicationService {
 
     private static final Logger log = LoggerFactory.getLogger(ReplicationService.class);
 
+    private final okhttp3.OkHttpClient httpClient = new okhttp3.OkHttpClient.Builder()
+            .connectTimeout(2, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(2, java.util.concurrent.TimeUnit.SECONDS)
+            .build();
+
     private final KVStore kvStore;
     private final WALManager walManager;
     private final PeerClient peerClient;
@@ -38,28 +43,47 @@ public class ReplicationService {
         execute(op, replicated);
     }
 
+    /**
+     * Actively checks reachability of all peers at write time.
+     * Does NOT rely on peerLastSeen timestamps — those reflect the last
+     * successful heartbeat but don't expire when a node goes down.
+     *
+     * Instead, attempts a live /actuator/health call to each peer
+     * right now and counts responses within a 2s timeout.
+     */
     private void checkWriteQuorum() {
-        Map<String, Long> lastSeen = clusterManager.getPeerLastSeen();
-        int totalNodes = clusterManager.getPeerUrls().length + 1; // peers + self
-        int reachable = 1; // count self
+        String[] peerUrls = clusterManager.getPeerUrls();
+        int totalNodes = peerUrls.length + 1; // peers + self
+        int reachable = 1; // self is always reachable
 
-        long now = System.currentTimeMillis();
-        for (String peerUrl : clusterManager.getPeerUrls()) {
-            Long lastContact = lastSeen.get(peerUrl.trim());
-            if (lastContact != null && (now - lastContact) < 6000) {
-                reachable++;
+        for (String peerUrl : peerUrls) {
+            peerUrl = peerUrl.trim();
+            if (peerUrl.isEmpty()) continue;
+            try {
+                okhttp3.Request request = new okhttp3.Request.Builder()
+                        .url(peerUrl + "/actuator/health")
+                        .build();
+                try (okhttp3.Response response = httpClient.newCall(request).execute()) {
+                    if (response.isSuccessful()) {
+                        reachable++;
+                    }
+                }
+            } catch (Exception e) {
+                // Peer unreachable — does not count
+                log.debug("Quorum check: {} unreachable — {}", peerUrl, e.getMessage());
             }
         }
 
-        if (reachable <= totalNodes / 2) {
+        int required = totalNodes / 2 + 1;
+        log.info("Quorum check: {}/{} reachable (need {})", reachable, totalNodes, required);
+
+        if (reachable < required) {
             throw new QuorumNotAvailableException(
                     "Write rejected — quorum not available. " +
-                            "Reachable nodes: " + reachable + "/" + totalNodes +
-                            " (need majority: " + (totalNodes / 2 + 1) + ")"
+                            "Reachable: " + reachable + "/" + totalNodes +
+                            ", need: " + required
             );
         }
-
-        log.info("Quorum check passed — {}/{} nodes reachable", reachable, totalNodes);
     }
 
     private void execute(WriteOperation op, boolean replicated) {
