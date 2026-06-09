@@ -36,18 +36,6 @@ public class ReplicationService {
         execute(op, replicated);
     }
 
-    /**
-     * Checks whether a write quorum is currently available.
-     *
-     * Quorum = majority of total cluster nodes must be reachable.
-     * Total node count = this node + number of peer URLs configured.
-     *
-     * The leader counts itself as reachable (it's running this code).
-     * It then counts how many peers responded to a recent heartbeat
-     * within the last 6 seconds using peerLastSeen.
-     *
-     * If reachable nodes <= totalNodes / 2, quorum is not met — reject write.
-     */
     private void checkWriteQuorum() {
         Map<String, Long> lastSeen = clusterManager.getPeerLastSeen();
         int totalNodes = clusterManager.getPeerUrls().length + 1; // peers + self
