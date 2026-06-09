@@ -162,12 +162,17 @@ choose_startup_mode() {
           return
           ;;
         2)
-          # Tear down old cluster before starting new one
-          echo -e "${YELLOW}Stopping previous cluster...${RESET}"
-          docker compose -f "$COMPOSE_FILE" down 2>/dev/null
-          ask_node_count
-          return
-          ;;
+                  echo -e "${YELLOW}Stopping previous cluster and wiping data...${RESET}"
+                  docker compose -f "$COMPOSE_FILE" down 2>/dev/null
+                  docker volume rm $(docker volume ls -q | grep availkv | grep -v ollama) 2>/dev/null
+                  rm -f .docker-session
+                  rm -f "$COMPOSE_FILE"
+                  rm -f logs/node*_wal.txt
+                  rm -f logs/.session
+                  echo -e "${GREEN}Wiped. Starting fresh.${RESET}"
+                  ask_node_count
+                  return
+                  ;;
         *) echo -e "${RED}Please enter 1 or 2.${RESET}" ;;
       esac
     done
