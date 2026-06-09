@@ -109,11 +109,30 @@ It prioritizes **Availability** and **Partition Tolerance** (AP) from the CAP th
 
 ### Local mode
 
-```bash
-# Build the JAR
-mvn clean package -DskipTests
+#### 1. Install Ollama
 
-# Start the cluster
+Install Ollama from:
+
+https://ollama.com
+
+
+#### 2. Pull the AI model
+
+> **gemma2:2b** is a lightweight LLM that runs efficiently on most modern CPUs, making a dedicated GPU optional for local development and testing.
+
+```bash
+ollama pull gemma2:2b
+```
+
+#### 3. Build AvailKV
+
+```bash
+mvn clean package -DskipTests
+```
+
+#### 4. Start the cluster
+
+```bash
 bash avail.sh
 ```
 
@@ -130,6 +149,7 @@ docker exec -it availkv-ollama ollama pull gemma2:2b
 ```
 
 The script generates `docker-compose.generated.yml` dynamically, builds the image, and starts all containers.
+
 
 
 ## CLI Commands
