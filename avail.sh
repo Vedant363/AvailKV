@@ -81,9 +81,14 @@ choose_startup_mode() {
           return
           ;;
         2)
-          ask_node_count
-          return
-          ;;
+                  echo -e "${YELLOW}Wiping previous session data...${RESET}"
+                  rm -f logs/node*_wal.txt
+                  rm -f logs/.session
+                  rm -f "$SESSION_FILE"
+                  echo -e "${GREEN}Wiped. Starting fresh.${RESET}"
+                  ask_node_count
+                  return
+                  ;;
         *)
           echo -e "${RED}Please enter 1 or 2.${RESET}"
           ;;
