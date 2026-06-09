@@ -1,6 +1,7 @@
 package com.availkv.cluster;
 
 import com.availkv.client.PeerClient;
+import com.availkv.storage.WALManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -17,11 +18,13 @@ public class HeartbeatScheduler {
     private static final long ELECTION_TIMEOUT_MAX_MS = 8000;
 
     private final ClusterManager clusterManager;
+    private final WALManager walManager;
     private final PeerClient peerClient;
     private final long electionTimeoutMs;
 
-    public HeartbeatScheduler(ClusterManager clusterManager, PeerClient peerClient) {
+    public HeartbeatScheduler(ClusterManager clusterManager, WALManager walManager, PeerClient peerClient) {
         this.clusterManager = clusterManager;
+        this.walManager = walManager;
         this.peerClient = peerClient;
         this.electionTimeoutMs = ThreadLocalRandom.current()
                 .nextLong(ELECTION_TIMEOUT_MIN_MS, ELECTION_TIMEOUT_MAX_MS);
@@ -70,7 +73,8 @@ public class HeartbeatScheduler {
         int totalNodes = peers.length + 1;
         int votes = 1; // self-vote already recorded in startElection()
 
-        VoteRequest voteRequest = new VoteRequest(clusterManager.getNodeId(), term);
+        int myLogSize = walManager.readAll().size();
+        VoteRequest voteRequest = new VoteRequest(clusterManager.getNodeId(), term, myLogSize);
 
         for (String peerUrl : peers) {
             peerUrl = peerUrl.trim();
