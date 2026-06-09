@@ -24,6 +24,12 @@ It prioritizes **Availability** and **Partition Tolerance** (AP) from the CAP th
 
 
 ## Architecture
+AvailKV follows Leader-Follower architecture.
+
+For a 3-Node system, 1 will be Leader and 2 will be Followers
+
+**Write-Ahead Logs (WAL)** - Log changes before store writes to ensure durability.
+
 ```
                     ┌─────────────────────┐
                     │    Client / CLI     │
