@@ -15,7 +15,6 @@
   <img src="https://img.shields.io/badge/CAP-AP%20System-red?style=flat-square"/>
 </p>
 
----
 
 ## What is AvailKV?
 
@@ -23,38 +22,49 @@ AvailKV is a distributed in-memory key-value store built for learning and demons
 
 It prioritizes **Availability** and **Partition Tolerance** (AP) from the CAP theorem — the cluster keeps serving reads from any alive node even during leader failure, accepting eventual consistency as the tradeoff.
 
----
 
 ## Architecture
-
 ```
-        ┌─────────────────────────────────────────────────────┐
-        │                    Client / CLI                     │
-        │              avail.sh / docker-avail.sh             │
-        └────────────────────────┬────────────────────────────┘
-                                 │ HTTP
-                  ┌──────────────┼──────────────┐
-                  ▼              ▼              ▼
-             ┌─────────┐   ┌─────────┐   ┌─────────┐
-             │  node1  │   │  node2  │◄──│  node3  │
-             │ LEADER  │──►│FOLLOWER │   │FOLLOWER │
-             └────┬────┘   └────┬────┘   └────┬────┘
-                  │              │              │
-             ┌────▼────┐   ┌────▼────┐   ┌────▼────┐
-             │   WAL   │   │   WAL   │   │   WAL   │
-             └─────────┘   └─────────┘   └─────────┘
-                                 │
-                            ┌────▼────┐
-                            │ Ollama  │
-                            │  Model  │
-                            └─────────┘
+                    ┌─────────────────────┐
+                    │    Client / CLI     │
+                    │ avail.sh / docker   │
+                    └──────────┬──────────┘
+                               │ HTTP
+                               ▼
+                    ┌─────────────────────┐
+                    │        node1        │
+                    │       LEADER        │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │         WAL         │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │   In-Memory State   │
+                    └──────────┬──────────┘
+                               │
+                    Replication│
+                     ┌─────────┴─────────┐
+                     ▼                   ▼
+            ┌─────────────────┐ ┌─────────────────┐
+            │      node2      │ │      node3      │
+            │    FOLLOWER     │ │    FOLLOWER     │
+            └────────┬────────┘ └────────┬────────┘
+                     │                   │
+                     ▼                   ▼
+              ┌───────────┐       ┌───────────┐
+              │    WAL    │       │    WAL    │
+              └───────────┘       └───────────┘
+
 ```
 
 **Write path:** Client → Leader → WAL → Memory → Replicate to followers
 
 **Read path:** Any alive node (leader first, fallback to followers with stale warning)
 
----
 
 ## Core Components
 
@@ -69,7 +79,6 @@ It prioritizes **Availability** and **Partition Tolerance** (AP) from the CAP th
 | `ClusterContext` | Assembles live cluster snapshot into text for LLM consumption |
 | `OllamaClient` | Streams prompt + context to local Ollama, parses chunked response |
 
----
 
 ## Features
 
@@ -95,7 +104,6 @@ It prioritizes **Availability** and **Partition Tolerance** (AP) from the CAP th
 - Two modes: local (`avail.sh`) and Docker (`docker-avail.sh`)
 - Docker compose file generated dynamically based on chosen node count
 
----
 
 ## Getting Started
 
@@ -123,7 +131,6 @@ docker exec -it availkv-ollama ollama pull gemma2:2b
 
 The script generates `docker-compose.generated.yml` dynamically, builds the image, and starts all containers.
 
----
 
 ## CLI Commands
 
@@ -145,7 +152,6 @@ HELP                  Show all commands
 EXIT                  Prompts to persist state or reset everything
 ```
 
----
 
 ## AI Diagnostics
 
@@ -161,7 +167,22 @@ availkv> AI 3 What does this node know about the cluster?
 
 Context fed to the LLM includes: node identity and state, current term, leader, peer reachability by node name, vote records per term, recent WAL entries, cluster event history (elections, step-downs, vote grants/rejections), and explicit pre-computed facts so the model doesn't have to infer from raw data.
 
----
+
+
+## Raft Safety Guarantees
+
+To prevent split-brain scenarios, a new leader can only be elected if a majority (quorum) of nodes is available.
+
+For example, in a 5-node cluster:
+
+* A quorum requires at least **3 nodes**.
+* If the current leader fails and fewer than 3 nodes remain reachable, no candidate can obtain a majority of votes.
+* As a result, **leader election does not succeed**, leader is not chosen and the cluster remains unavailable for writes until a quorum is restored.
+* However read can still be done through followers.
+
+🟡🟢 **This behavior is intentional and ensures that only one valid leader can exist at a time, preventing split-brain conditions.**
+
+
 
 ## CAP Theorem
 
@@ -174,10 +195,6 @@ AvailKV is an **AP system** — it prioritises Availability and Partition Tolera
 
 
 
-
-
----
-
 ## Tech Stack
 
 - **Java 21** + **Spring Boot 3.2** — REST API, scheduling, dependency injection
@@ -187,6 +204,7 @@ AvailKV is an **AP system** — it prioritises Availability and Partition Tolera
 - **Docker** + **Docker Compose** — containerized multi-node deployment
 - **Shell (Bash)** — cluster management CLI
 
----
 
-<p align="center">Built for learning distributed systems concepts — one phase at a time.</p>
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
