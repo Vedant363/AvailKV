@@ -83,6 +83,7 @@ choose_startup_mode() {
         2)
                   echo -e "${YELLOW}Wiping previous session data...${RESET}"
                   rm -f logs/node*_wal.txt
+                  rm -f logs/node*.log
                   rm -f logs/.session
                   rm -f "$SESSION_FILE"
                   echo -e "${GREEN}Wiped. Starting fresh.${RESET}"
