@@ -45,7 +45,7 @@ It prioritizes **Availability** and **Partition Tolerance** (AP) from the CAP th
 
 - [Raft Safety Guarantees](#raft-safety-guarantees)
 
-- [Consistency Model (‼️Important)](#consistency-model-important)
+- [Consistency Model (Important)](#consistency-model-important)
 
 - [License](#license)
 
@@ -255,7 +255,7 @@ For example, in a 5-node cluster:
 🟡🟢 **This behavior is intentional and ensures that only one valid leader can exist at a time, preventing split-brain conditions.**
 
 
-## Consistency Model (‼️Important)
+## Consistency Model (Important)
 
 AvailKV follows an **AP (Availability + Partition Tolerance)** model from the CAP theorem.
 
