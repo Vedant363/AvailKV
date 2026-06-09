@@ -30,7 +30,6 @@ AvailKV follows a **Leader–Follower architecture** inspired by the Raft consen
 In a 3-node cluster:
 - 1 node acts as the **Leader**
 - 2 nodes act as **Followers**
-- 
 
 ### Write-Ahead Logging (WAL)
 
@@ -75,7 +74,7 @@ AvailKV uses **Write-Ahead Logging (WAL)** to ensure durability. Every change is
 
 **Write path:** Client → Leader → WAL → Memory → Replicate to followers
 
-**Read path:** Any alive node (leader first, fallback to followers with stale warning)
+**Read path:** Try Leader → if unreachable, query alive Followers → return first available result (⚠️ stale reads possible in fallback mode)
 
 
 ## Core Components
