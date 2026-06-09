@@ -74,7 +74,7 @@ AvailKV uses **Write-Ahead Logging (WAL)** to ensure durability. Every change is
 
 **Write path:** Client → Leader → WAL → Memory → Replicate to followers
 
-**Read path:** Try Leader → if unreachable, query alive Followers → return first available result (⚠️ stale reads possible in fallback mode)
+**Read path:** Try Leader → if unreachable, query alive Followers → return first available result (⚠️ stale reads possible)
 
 
 ## Core Components
@@ -226,7 +226,7 @@ For example, in a 5-node cluster:
 🟡🟢 **This behavior is intentional and ensures that only one valid leader can exist at a time, preventing split-brain conditions.**
 
 
-## Consistency Model (Important‼️)
+## Consistency Model (‼️Important)
 
 AvailKV follows an **AP (Availability + Partition Tolerance)** model from the CAP theorem.
 
