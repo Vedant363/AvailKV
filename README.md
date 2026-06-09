@@ -116,6 +116,18 @@ AvailKV uses **Write-Ahead Logging (WAL)** to ensure durability. Every change is
 - Docker compose file generated dynamically based on chosen node count
 
 
+
+## Tech Stack
+
+- **Java 21** + **Spring Boot 3.2** — REST API, scheduling, dependency injection
+- **OkHttp** — inter-node HTTP communication
+- **Jackson** — JSON serialization
+- **Ollama** + **gemma2:2b** — local LLM for AI diagnostics
+- **Docker** + **Docker Compose** — containerized multi-node deployment
+- **Shell (Bash)** — cluster management CLI
+
+
+
 ## Getting Started
 
 ### Local mode
@@ -214,26 +226,50 @@ For example, in a 5-node cluster:
 🟡🟢 **This behavior is intentional and ensures that only one valid leader can exist at a time, preventing split-brain conditions.**
 
 
+## Consistency Model (Important‼️)
 
-## CAP Theorem
+AvailKV follows an **AP (Availability + Partition Tolerance)** model from the CAP theorem.
 
-AvailKV is an **AP system** — it prioritises Availability and Partition Tolerance over Strong Consistency.
+The system prioritizes **availability over strict consistency**, meaning it will continue serving data even during node failures or network partitions.
 
-- **Reads** are served from any alive node, including followers with potentially stale data
-- **Writes** go through the leader only, replicated to followers asynchronously (fire-and-forget)
-- **During a partition**, the majority partition elects a new leader and keeps serving — the minority partition becomes read-only
-- **Data converges** once nodes reconnect and WALs are replayed — making this an eventually consistent AP system
+### Behavior
+
+- Reads may return **stale data** if the most recent updates are not fully replicated.
+- During leader failure, the system can fall back to other alive nodes for read operation.
+- Deleted or updated keys may temporarily appear on lagging nodes until replication completes.
+- AvailKV is best described as a **best-effort AP system with partial eventual consistency**.
+
+| Property | Status | Notes |
+|----------|--------|------|
+| AP system (Availability + Partition Tolerance) | ✅ Yes | Prioritizes availability over strict consistency |
+| Strong consistency | ❌ No | Reads may be stale under failure conditions |
+| Eventual consistency (normal operation) | ⚠️ Partially | Replication converges when all nodes are healthy |
+| Eventual consistency (after node rejoin) | ❌ No | No anti-entropy / re-sync mechanism for missed writes |
+
+- It remains consistent during normal operation when all nodes are reachable, but it does not implement a full rejoin or anti-entropy protocol. Therefore, it cannot guarantee full eventual consistency after extended node failures or partitions.
+
+### Design Goal
+
+The goal of AvailKV is to **always respond to client requests**, even if the response may not reflect the latest consistent state across all nodes.
+
+This makes the system suitable for scenarios where:
+- High availability is critical
+- Slightly stale reads are acceptable
+- Partition tolerance is required
 
 
+### Real-life Use Case
 
-## Tech Stack
+AvailKV’s AP behavior is suitable for use cases like caching systems or social media counters where availability is more important than strict accuracy.
 
-- **Java 21** + **Spring Boot 3.2** — REST API, scheduling, dependency injection
-- **OkHttp** — inter-node HTTP communication
-- **Jackson** — JSON serialization
-- **Ollama** + **gemma2:2b** — local LLM for AI diagnostics
-- **Docker** + **Docker Compose** — containerized multi-node deployment
-- **Shell (Bash)** — cluster management CLI
+For example, in a "like counter" system:
+
+- A user likes a post, and the update is replicated across nodes.
+- If one node is temporarily offline, it may miss the latest update.
+- During a read, the system may still return an older like count from a lagging node.
+
+Even though the value might be slightly stale, the system always responds instead of failing, ensuring high availability during network issues.
+
 
 
 ## License
