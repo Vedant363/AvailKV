@@ -276,35 +276,54 @@ cmd_get() {
   local key="$1"
   if [ -z "$key" ]; then echo -e "${RED}Usage: GET key${RESET}"; return; fi
 
-  # Try leader first
+  # Try leader first — use -w to capture HTTP status code separately
   local leader_url
   leader_url=$(find_leader_url)
+
   if [ -n "$leader_url" ]; then
-    local resp
-    resp=$(curl -s --max-time 3 "$leader_url/kv/$key")
-    if [ -n "$resp" ]; then
-      echo -e "${CYAN}GET${RESET} $key = $resp"
+    local body
+    local http_code
+    # Write body to a temp variable, capture status code separately
+    body=$(curl -s -w "\n%{http_code}" --max-time 3 "$leader_url/kv/$key")
+    http_code=$(echo "$body" | tail -1)
+    body=$(echo "$body" | sed '$d')
+
+    if [ "$http_code" == "200" ]; then
+      # Leader found the key — return it, this is authoritative
+      echo -e "${CYAN}GET${RESET} $key = $body"
+      return
+    elif [ "$http_code" == "404" ]; then
+      # Leader is alive and explicitly says key doesn't exist — answer is final
+      echo -e "${YELLOW}$key not found${RESET}"
       return
     fi
+    # Any other code (000 = curl timeout, 5xx = error) falls through to follower fallback
   fi
 
-  # Leader didn't have it — try every alive follower
+  # Leader unreachable — fall back to alive followers
+  echo -e "${YELLOW}Leader unreachable — trying alive followers...${RESET}"
   for i in $(seq 1 "$NODE_COUNT"); do
     local url
     url=$(node_url "$i")
-    if [ "$url" == "$leader_url" ]; then continue; fi  # already tried
+    if [ "$url" == "$leader_url" ]; then continue; fi
     if is_alive "$url"; then
-      local resp
-      resp=$(curl -s --max-time 3 "$url/kv/$key")
-      if [ -n "$resp" ]; then
-        echo -e "${CYAN}GET${RESET} $key = $resp ${YELLOW}(stale — from fallback node$i, may not reflect latest write)${RESET}"
+      local body
+      local http_code
+      body=$(curl -s -w "\n%{http_code}" --max-time 3 "$url/kv/$key")
+      http_code=$(echo "$body" | tail -1)
+      body=$(echo "$body" | sed '$d')
+
+      if [ "$http_code" == "200" ]; then
+        echo -e "${CYAN}GET${RESET} $key = $body ${YELLOW}(stale — from fallback node$i, leader was unreachable)${RESET}"
         return
+      elif [ "$http_code" == "404" ]; then
+        # This follower also doesn't have it — keep trying others, they might
+        continue
       fi
     fi
   done
 
-  # Nothing found anywhere
-  echo -e "${RED}$key not found in any alive node — data is not sent by client or may be lost.${RESET}"
+  echo -e "${RED}$key not found in any alive node.${RESET}"
 }
 
 cmd_delete() {
