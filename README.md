@@ -16,11 +16,40 @@
 </p>
 
 
+
 ## What is AvailKV?
 
 AvailKV is a distributed in-memory key-value store built for learning and demonstrating core distributed systems concepts. It implements a Raft-inspired consensus protocol from scratch — no libraries, no shortcuts — on top of Spring Boot, with a full CLI for cluster management, WAL-based crash recovery, and an AI diagnostic layer powered by a local LLM.
 
 It prioritizes **Availability** and **Partition Tolerance** (AP) from the CAP theorem — the cluster keeps serving reads from any alive node even during leader failure, accepting eventual consistency as the tradeoff.
+
+
+
+## Table of Contents
+
+- [Architecture](#architecture)
+
+- [Core Components](#core-components)
+
+- [Features](#features)
+
+- [Tech Stack](#tech-stack)
+
+- [Getting Started](#getting-started)
+    - [Local Mode](#local-mode)
+    - [Docker Mode](#docker-mode)
+
+- [CLI Commands](#cli-commands)
+
+- [AI Diagnostics](#ai-diagnostics)
+
+- [Raft Safety Guarantees](#raft-safety-guarantees)
+
+- [Consistency Model (‼️Important)](#consistency-model-important)
+
+- [License](#license)
+
+
 
 
 ## Architecture
@@ -31,7 +60,7 @@ In a 3-node cluster:
 - 1 node acts as the **Leader**
 - 2 nodes act as **Followers**
 
-### Write-Ahead Logging (WAL)
+#### Write-Ahead Logging (WAL)
 
 AvailKV uses **Write-Ahead Logging (WAL)** to ensure durability. Every change is first recorded in a log file before being applied to the in-memory store, allowing data recovery after crashes or restarts.
 
