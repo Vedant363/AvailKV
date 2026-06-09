@@ -6,6 +6,7 @@ import com.availkv.storage.KVStore;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import com.availkv.replication.QuorumNotAvailableException;
 
 @RestController
 @RequestMapping("/kv")
@@ -40,8 +41,12 @@ public class KVController {
             return leaderOnlyResponse();
         }
 
-        replicationService.put(key, value, replicated);
-        return ResponseEntity.ok("OK");
+        try {
+            replicationService.put(key, value, replicated);
+            return ResponseEntity.ok("OK");
+        } catch (QuorumNotAvailableException e) {
+            return ResponseEntity.status(503).body(e.getMessage());
+        }
     }
 
     @DeleteMapping("/{key}")
@@ -53,13 +58,16 @@ public class KVController {
             return leaderOnlyResponse();
         }
 
-        // Check existence before going through replication pipeline
         if (kvStore.get(key).isEmpty()) {
             return ResponseEntity.notFound().build();
         }
 
-        replicationService.delete(key, replicated);
-        return ResponseEntity.ok("DELETED");
+        try {
+            replicationService.delete(key, replicated);
+            return ResponseEntity.ok("DELETED");
+        } catch (QuorumNotAvailableException e) {
+            return ResponseEntity.status(503).body(e.getMessage());
+        }
     }
 
     private ResponseEntity<String> leaderOnlyResponse() {
