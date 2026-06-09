@@ -36,9 +36,49 @@ public class ReplicationService {
         execute(op, replicated);
     }
 
+    /**
+     * Checks whether a write quorum is currently available.
+     *
+     * Quorum = majority of total cluster nodes must be reachable.
+     * Total node count = this node + number of peer URLs configured.
+     *
+     * The leader counts itself as reachable (it's running this code).
+     * It then counts how many peers responded to a recent heartbeat
+     * within the last 6 seconds using peerLastSeen.
+     *
+     * If reachable nodes <= totalNodes / 2, quorum is not met — reject write.
+     */
+    private void checkWriteQuorum() {
+        Map<String, Long> lastSeen = clusterManager.getPeerLastSeen();
+        int totalNodes = clusterManager.getPeerUrls().length + 1; // peers + self
+        int reachable = 1; // count self
+
+        long now = System.currentTimeMillis();
+        for (String peerUrl : clusterManager.getPeerUrls()) {
+            Long lastContact = lastSeen.get(peerUrl.trim());
+            if (lastContact != null && (now - lastContact) < 6000) {
+                reachable++;
+            }
+        }
+
+        if (reachable <= totalNodes / 2) {
+            throw new QuorumNotAvailableException(
+                    "Write rejected — quorum not available. " +
+                            "Reachable nodes: " + reachable + "/" + totalNodes +
+                            " (need majority: " + (totalNodes / 2 + 1) + ")"
+            );
+        }
+
+        log.info("Quorum check passed — {}/{} nodes reachable", reachable, totalNodes);
+    }
+
     private void execute(WriteOperation op, boolean replicated) {
         log.info("[{}] Executing {} (replicated={})",
                 clusterManager.getNodeId(), op, replicated);
+
+        if (!replicated) {
+            checkWriteQuorum();
+        }
 
         // WAL first
         walManager.append(op);
