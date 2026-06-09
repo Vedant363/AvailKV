@@ -283,21 +283,36 @@ cmd_put() {
 cmd_get() {
   local key="$1"
   if [ -z "$key" ]; then echo -e "${RED}Usage: GET key${RESET}"; return; fi
+
+  # Try leader first
+  local leader_url
+  leader_url=$(find_leader_url)
+  if [ -n "$leader_url" ]; then
+    local resp
+    resp=$(curl -s --max-time 3 "$leader_url/kv/$key")
+    if [ -n "$resp" ]; then
+      echo -e "${CYAN}GET${RESET} $key = $resp"
+      return
+    fi
+  fi
+
+  # Leader didn't have it — try every alive follower
   for i in $(seq 1 "$NODE_COUNT"); do
     local url
     url=$(node_url "$i")
+    if [ "$url" == "$leader_url" ]; then continue; fi  # already tried
     if is_alive "$url"; then
       local resp
       resp=$(curl -s --max-time 3 "$url/kv/$key")
       if [ -n "$resp" ]; then
-        echo -e "${CYAN}GET${RESET} $key = $resp"
-      else
-        echo -e "${YELLOW}$key not found${RESET}"
+        echo -e "${CYAN}GET${RESET} $key = $resp ${YELLOW}(stale — from fallback node$i, may not reflect latest write)${RESET}"
+        return
       fi
-      return
     fi
   done
-  echo -e "${RED}No alive nodes.${RESET}"
+
+  # Nothing found anywhere
+  echo -e "${RED}$key not found in any alive node — data is not sent by client or maybe lost.${RESET}"
 }
 
 cmd_delete() {
