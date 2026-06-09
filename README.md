@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/Spring%20Boot-3.2-brightgreen?style=flat-square&logo=springboot"/>
   <img src="https://img.shields.io/badge/Docker-Compose-blue?style=flat-square&logo=docker"/>
   <img src="https://img.shields.io/badge/Ollama-gemma2%3A2b-purple?style=flat-square"/>
-  <img src="https://img.shields.io/badge/CAP-AP%20System-red?style=flat-square"/>
+  <img src="https://img.shields.io/badge/CAP%20Theorem-AP%20Read%20System-red?style=flat-square"/>
 </p>
 
 
@@ -21,7 +21,7 @@
 
 AvailKV is a distributed in-memory key-value store built for learning and demonstrating core distributed systems concepts. It implements a Raft-inspired consensus protocol from scratch, on top of Spring Boot, with a full CLI for cluster management, WAL-based crash recovery, and an AI diagnostic layer powered by a local LLM.
 
-It prioritizes **Availability** and **Partition Tolerance** (AP) from the CAP theorem, the cluster keeps serving reads from any alive node even during leader failure, accepting eventual consistency as the tradeoff.
+It prioritizes **Availability** and **Partition Tolerance** (AP) from the CAP theorem, the cluster keeps serving reads from any alive node even during leader failure, accepting eventual consistency as the tradeoff. Writes, however, are held to a stricter standard: they are only accepted by a quorum-elected leader, preventing stale or split-brain writes.
 
 
 
@@ -36,8 +36,8 @@ It prioritizes **Availability** and **Partition Tolerance** (AP) from the CAP th
 - [Tech Stack](#tech-stack)
 
 - [Getting Started](#getting-started)
-    - [Local Mode](#local-mode)
-    - [Docker Mode](#docker-mode)
+  - [Local Mode](#local-mode)
+  - [Docker Mode](#docker-mode)
 
 - [CLI Commands](#cli-commands)
 
@@ -249,55 +249,77 @@ For example, in a 5-node cluster:
 
 * A quorum requires at least **3 nodes**.
 * If the current leader fails and fewer than 3 nodes remain reachable, no candidate can obtain a majority of votes.
-* As a result, **leader election does not succeed**, leader is not chosen and the cluster remains unavailable for writes until a quorum is restored.
-* However read can still be done through followers.
+* As a result, **leader election does not succeed**, no leader is chosen, and the cluster rejects all write requests until a quorum is restored.
+* Reads, however, can still be served by any alive follower.
 
 🟡🟢 **This behavior is intentional and ensures that only one valid leader can exist at a time, preventing split-brain conditions.**
 
 
 ## Consistency Model (Important)
 
-AvailKV follows an **AP (Availability + Partition Tolerance)** model from the CAP theorem.
+AvailKV has **asymmetric consistency guarantees** — reads and writes are treated very differently by design.
 
-The system prioritizes **availability over strict consistency**, meaning it will continue serving data even during node failures or network partitions.
+### Write Consistency — Strong
 
-### Behavior
+Writes in AvailKV are strongly controlled:
 
-- Reads may return **stale data** if the most recent updates are not fully replicated.
-- During leader failure, the system can fall back to other alive nodes for read operation.
-- Deleted or updated keys may temporarily appear on lagging nodes until replication completes.
-- AvailKV is best described as a **best-effort AP system with partial eventual consistency**.
+- All writes go exclusively through the **Leader**, which is the single source of truth.
+- A leader can only be elected with a **majority quorum**, ensuring it is never a stale or behind node.
+- If a majority quorum is unavailable, **no leader is elected** and all write requests are rejected until quorum is restored.
+- This means writes can never be accepted by a stale node or during a split-brain scenario.
+
+### Read Consistency — Available (Best-Effort)
+
+Reads in AvailKV prioritize availability over strict accuracy:
+
+- The cluster always tries the **Leader first** for a read.
+- If the Leader is unreachable, the request **falls back to any alive follower** — even if only a single node remains up.
+- As long as at least one node is alive, reads will be served. The system only goes completely dark if every node is down.
+- Reads from followers may return **stale data**, since replication from the leader may not have completed.
+
+### Behavior Summary
+
+| Scenario | Read | Write |
+|---|---|---|
+| All nodes healthy | ✅ Fresh data from leader | ✅ Accepted by leader |
+| Leader down, quorum alive | ⚠️ Stale data from follower (until new leader elected) | ⏳ Blocked until new leader elected |
+| Leader down, quorum lost | ⚠️ Stale data from any alive follower | ❌ Rejected — no leader can be elected |
+| Single node alive | ⚠️ Stale data from that node | ❌ Rejected — no quorum |
+| All nodes down | ❌ No response | ❌ No response |
+
+### Consistency Properties
 
 | Property | Status | Notes |
-|----------|--------|------|
-| AP system (Availability + Partition Tolerance) | ✅ Yes | Prioritizes availability over strict consistency |
-| Strong consistency | ❌ No | Reads may be stale under failure conditions |
-| Eventual consistency (normal operation) | ⚠️ Partially | Replication converges when all nodes are healthy |
-| Eventual consistency (after node rejoin) | ❌ No | No anti-entropy / re-sync mechanism for missed writes |
+|----------|--------|-------|
+| Write safety (no stale leader) | ✅ Yes | Leader always elected with majority quorum |
+| Write availability under quorum loss | ❌ No | Writes blocked — intentional to prevent split-brain |
+| Read availability | ✅ Yes | Reads served as long as any node is alive |
+| Strong read consistency | ❌ No | Reads may be stale, especially from followers |
+| Eventual consistency (normal operation) | ⚠️ Partial | Converges when all nodes are healthy |
+| Eventual consistency (after node rejoin) | ❌ No | No anti-entropy / re-sync for missed writes |
 
-- It remains consistent during normal operation when all nodes are reachable, but it does not implement a full rejoin or anti-entropy protocol. Therefore, it cannot guarantee full eventual consistency after extended node failures or partitions.
+> Conflicts are easy to reason about because writes are only ever accepted by a quorum-elected leader — a node that lagged behind can never become the write authority. This limits divergence to read-staleness only, never write-divergence.
 
 ### Design Goal
 
-The goal of AvailKV is to **always respond to client requests**, even if the response may not reflect the latest consistent state across all nodes.
+AvailKV is designed so that **reads never fail due to partial failures**, while **writes are never accepted in an unsafe state**. The system trades read freshness for read availability, but never trades write safety for write availability.
 
-This makes the system suitable for scenarios where:
-- High availability is critical
+This makes AvailKV well suited for scenarios where:
+- High read availability is critical, even under node failures
 - Slightly stale reads are acceptable
+- Write correctness and prevention of split-brain are non-negotiable
 - Partition tolerance is required
-
 
 ### Real-life Use Case
 
-AvailKV’s AP behavior is suitable for use cases like caching systems or social media counters where availability is more important than strict accuracy.
+AvailKV's asymmetric consistency is suitable for use cases like caching layers, social media counters, leaderboards, or configuration reads — where reads must always respond, writes must be correct, but the read value doesn't need to be millisecond-fresh.
 
 For example, in a "like counter" system:
 
-- A user likes a post, and the update is replicated across nodes.
-- If one node is temporarily offline, it may miss the latest update.
-- During a read, the system may still return an older like count from a lagging node.
-
-Even though the value might be slightly stale, the system always responds instead of failing, ensuring high availability during network issues.
+- A user likes a post and the write is accepted by the leader, then replicated.
+- If one node is temporarily offline, it may miss the update.
+- A read from that lagging node returns a slightly older count — but it always responds instead of failing.
+- Meanwhile, a new "like" write is only accepted once a valid leader with quorum exists, so the counter never goes backwards or forks across nodes.
 
 
 
