@@ -24,11 +24,17 @@ It prioritizes **Availability** and **Partition Tolerance** (AP) from the CAP th
 
 
 ## Architecture
-AvailKV follows Leader-Follower architecture.
 
-For a 3-Node system, 1 will be Leader and 2 will be Followers
+AvailKV follows a **Leader–Follower architecture** inspired by the Raft consensus model.
 
-**Write-Ahead Logs (WAL)** - Log changes before store writes to ensure durability.
+In a 3-node cluster:
+- 1 node acts as the **Leader**
+- 2 nodes act as **Followers**
+- 
+
+### Write-Ahead Logging (WAL)
+
+AvailKV uses **Write-Ahead Logging (WAL)** to ensure durability. Every change is first recorded in a log file before being applied to the in-memory store, allowing data recovery after crashes or restarts.
 
 ```
                     ┌─────────────────────┐
