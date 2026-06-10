@@ -66,7 +66,7 @@ EOF
       - availkv-net
     depends_on:
       - ollama
-    restart: on-failure
+    restart: no
 EOF
   done
 
@@ -247,7 +247,10 @@ find_leader_url() {
           if [ "node$j" == "$leader_id" ]; then
             local lurl
             lurl=$(node_url "$j")
-            if is_alive "$lurl"; then
+            # ── Key fix: verify this node actually reports LEADER state ──
+            local lstate
+            lstate=$(curl -s --max-time 2 "$lurl/status" 2>/dev/null)
+            if is_alive "$lurl" && echo "$lstate" | grep -q "| LEADER |"; then
               echo "$lurl"
               return
             fi
@@ -360,7 +363,7 @@ cmd_systemstatus() {
       local status
       status=$(curl -s --max-time 2 "$url/status" 2>/dev/null)
       local role
-      role=$(echo "$status" | awk -F' | ' '{print $2}' | xargs)
+      role=$(echo "$status" | cut -d'|' -f2 | xargs)
       printf "| %-22s %s |\n" "Node $i ($role) :" "✅"
     else
       printf "| %-22s %s |\n" "Node $i :" "❌"
@@ -404,7 +407,20 @@ cmd_leader() {
   local leader_url
   leader_url=$(find_leader_url)
   if [ -z "$leader_url" ]; then
-    echo -e "${RED}No leader currently elected.${RESET}"; return
+    # No verified leader — check if nodes are alive but leaderless
+    local any_alive=false
+    for i in $(seq 1 "$NODE_COUNT"); do
+      if is_alive "$(node_url "$i")"; then
+        any_alive=true
+        break
+      fi
+    done
+    if [ "$any_alive" == "true" ]; then
+      echo -e "${YELLOW}No leader elected — cluster may lack majority quorum.${RESET}"
+    else
+      echo -e "${RED}No alive nodes found.${RESET}"
+    fi
+    return
   fi
   local status
   status=$(curl -s --max-time 2 "$leader_url/status")
@@ -420,7 +436,7 @@ cmd_kill() {
   if [ "${target^^}" == "ALL" ]; then
     echo -e "${RED}Stopping all node containers...${RESET}"
     for i in $(seq 1 "$NODE_COUNT"); do
-      docker compose -f "$COMPOSE_FILE" stop "node$i"
+      docker compose -f "$COMPOSE_FILE" kill "node$target"
     done
     echo "Done."
     return
@@ -436,12 +452,12 @@ cmd_kill() {
     local leader_id
     leader_id=$(echo "$status" | sed 's/.*leader=//;s/ .*//')
     echo -e "${RED}Stopping container: $leader_id${RESET}"
-    docker compose -f "$COMPOSE_FILE" stop "$leader_id"
+    docker compose -f "$COMPOSE_FILE" kill "$leader_id"
     return
   fi
   if [[ "$target" =~ ^[0-9]+$ ]] && [ "$target" -ge 1 ] && [ "$target" -le "$NODE_COUNT" ]; then
     echo -e "${RED}Stopping container: node$target${RESET}"
-    docker compose -f "$COMPOSE_FILE" stop "node$target"
+    docker compose -f "$COMPOSE_FILE" kill "node$target"
   else
     echo -e "${RED}Usage: KILL <n> | KILL LEADER | KILL ALL${RESET}"
   fi
