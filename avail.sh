@@ -353,8 +353,8 @@ cmd_systemstatus() {
       local status
       status=$(curl -s --max-time 2 "$url/status" 2>/dev/null)
       local role
-      role=$(echo "$status" | awk -F' | ' '{print $2}' | xargs)
-      printf "| %-22s %s |\n" "$label ($role) :" "✅"
+      role=$(echo "$status" | cut -d'|' -f2 | xargs)
+      printf "| %-22s %s |\n" "Node $i ($role) :" "✅"
     else
       printf "| %-22s %s |\n" "$label :" "❌"
     fi
