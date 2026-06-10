@@ -103,7 +103,7 @@ AvailKV uses **Write-Ahead Logging (WAL)** to ensure durability. Every change is
 
 **Write path:** Client → Leader → WAL → Memory → Replicate to followers
 
-**Read path:** Try Leader → if unreachable, query alive Followers → return first available result (⚠️ stale reads possible)
+**Read path:** Try Leader → if unreachable, query alive Followers → return first available result (⚠️ stale reads possible, but it's intentional)
 
 
 ## Core Components
@@ -202,7 +202,15 @@ docker exec -it availkv-ollama ollama pull gemma2:2b
 
 The script generates `docker-compose.generated.yml` dynamically, builds the image, and starts all containers.
 
-
+> ⚠️**WARNING**
+>
+> AvailKV currently uses simple HTTP-based communication between nodes for heartbeats, elections, and replication. In Docker environments, container networking and scheduling may occasionally introduce latency, causing requests to arrive later than expected.
+>
+> Since consensus protocols are highly timing-sensitive, these delays can sometimes affect leader election behavior or other Raft-related timing assumptions during testing.
+>
+> Production-grade distributed systems typically use more efficient RPC mechanisms such as gRPC and carefully tuned networking stacks to minimize communication overhead and improve protocol reliability.
+>
+> If you observe unexpected behavior in Docker mode, it is usually related to container networking delays rather than the consensus logic itself.
 
 ## CLI Commands
 
@@ -320,6 +328,13 @@ For example, in a "like counter" system:
 - If one node is temporarily offline, it may miss the update.
 - A read from that lagging node returns a slightly older count — but it always responds instead of failing.
 - Meanwhile, a new "like" write is only accepted once a valid leader with quorum exists, so the counter never goes backwards or forks across nodes.
+
+
+> **NOTE**
+>
+> AvailKV was built primarily for learning and demonstrating distributed systems concepts such as leader election, quorum-based consensus, write-ahead logging (WAL), fault tolerance, cluster management, and AI-assisted observability.
+>
+> While the project implements many ideas inspired by production systems, it is intended as an educational project and should not be considered production-ready software.
 
 
 
